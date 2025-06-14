@@ -1,0 +1,364 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  Dimensions,
+  Animated,
+  PanResponder,
+  Alert,
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { Accelerometer } from 'expo-sensors';
+import { LightSensor } from 'expo-sensors';
+import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+const BOX_SIZE = 40;
+const GOAL_SIZE = 60;
+const BARRIER_WIDTH = 80;
+const BARRIER_HEIGHT = 20;
+const SENSITIVITY = 50;
+
+const INITIAL_X = 50;
+const INITIAL_Y = 100;
+
+const GOAL_X = screenWidth - GOAL_SIZE - 30;
+const GOAL_Y = screenHeight - GOAL_SIZE - 100;
+
+// ბარიერის პოზიციები
+const BARRIERS = [
+  { x: screenWidth / 2 - BARRIER_WIDTH / 2, y: screenHeight / 3 },
+  { x: 100, y: screenHeight / 2 },
+  { x: screenWidth - 150, y: screenHeight / 2.5 },
+];
+
+export default function TiltBoxGame() {
+  const [boxPosition] = useState(new Animated.ValueXY({ x: INITIAL_X, y: INITIAL_Y }));
+  const [gameMessage, setGameMessage] = useState('დახარეთ თქვენი მოწყობილობა, რომ წითელი ყუთი მწვანე კართან გადაიტანოთ!');
+  const [isDarkTheme, setIsDarkTheme] = useState(false);
+  const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0 });
+  
+  const successSoundRef = useRef(null);
+  const failSoundRef = useRef(null);
+  const currentPosition = useRef({ x: INITIAL_X, y: INITIAL_Y });
+
+  // ხმის ეფექტების ჩატვირთვა
+  useEffect(() => {
+    const loadSounds = async () => {
+      try {
+        const { sound: successSound } = await Audio.Sound.createAsync(
+          require('./assets/sounds/success.mp3'),
+          { shouldPlay: false }
+        );
+        const { sound: failSound } = await Audio.Sound.createAsync(
+          require('./assets/sounds/fail.mp3'),
+          { shouldPlay: false }
+        );
+        
+        successSoundRef.current = successSound;
+        failSoundRef.current = failSound;
+      } catch (error) {
+        console.log('Error loading sounds:', error);
+      }
+    };
+
+    loadSounds();
+
+    return () => {
+      if (successSoundRef.current) {
+        successSoundRef.current.unloadAsync();
+      }
+      if (failSoundRef.current) {
+        failSoundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const subscription = Accelerometer.addListener(accelerometerData => {
+      setAccelerometerData(accelerometerData);
+    });
+
+    Accelerometer.setUpdateInterval(16);
+
+    return () => subscription && subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const subscription = LightSensor.addListener(lightData => {
+      const threshold = 50;
+      setIsDarkTheme(lightData.illuminance < threshold);
+    });
+
+    LightSensor.setUpdateInterval(1000);
+
+    return () => subscription && subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const moveBox = () => {
+      const deltaX = accelerometerData.x * SENSITIVITY;
+      const deltaY = -accelerometerData.y * SENSITIVITY;
+
+      const newX = Math.max(0, Math.min(screenWidth - BOX_SIZE, currentPosition.current.x + deltaX));
+      const newY = Math.max(0, Math.min(screenHeight - BOX_SIZE - 100, currentPosition.current.y + deltaY));
+
+      currentPosition.current = { x: newX, y: newY };
+
+      Animated.timing(boxPosition, {
+        toValue: { x: newX, y: newY },
+        duration: 16,
+        useNativeDriver: false,
+      }).start();
+
+      checkCollisions(newX, newY);
+    };
+
+    const interval = setInterval(moveBox, 16);
+    return () => clearInterval(interval);
+  }, [accelerometerData]);
+
+  const checkCollisions = (x, y) => {
+    if (
+      x + BOX_SIZE > GOAL_X &&
+      x < GOAL_X + GOAL_SIZE &&
+      y + BOX_SIZE > GOAL_Y &&
+      y < GOAL_Y + GOAL_SIZE
+    ) {
+      handleSuccess();
+      return;
+    }
+
+    for (const barrier of BARRIERS) {
+      if (
+        x + BOX_SIZE > barrier.x &&
+        x < barrier.x + BARRIER_WIDTH &&
+        y + BOX_SIZE > barrier.y &&
+        y < barrier.y + BARRIER_HEIGHT
+      ) {
+        handleCollision();
+        return;
+      }
+    }
+  };
+
+  const handleSuccess = async () => {
+    setGameMessage(' წარმატება! თქვენ მიზანს მიაღწიეთ!');
+    
+    try {
+      if (successSoundRef.current) {
+        await successSoundRef.current.replayAsync();
+      }
+    } catch (error) {
+      console.log('ხმის წარმატებით დაკვრის შეცდომა', error);
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    setTimeout(() => {
+      resetGame();
+    }, 2000);
+  };
+
+  const handleCollision = async () => {
+    setGameMessage('💥 Oops! You hit a barrier!');
+
+    try {
+      if (failSoundRef.current) {
+        await failSoundRef.current.replayAsync();
+      }
+    } catch (error) {
+      console.log('Error playing fail sound:', error);
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    setTimeout(() => {
+      resetGame();
+    }, 1000);
+  };
+
+  const resetGame = () => {
+    currentPosition.current = { x: INITIAL_X, y: INITIAL_Y };
+    
+    Animated.timing(boxPosition, {
+      toValue: { x: INITIAL_X, y: INITIAL_Y },
+      duration: 500,
+      useNativeDriver: false,
+    }).start();
+
+    setGameMessage('დახარეთ თქვენი მოწყობილობა, რომ წითელი ყუთი მწვანე კარისკენ მიმართოთ!);
+  };
+
+  const theme = isDarkTheme ? darkTheme : lightTheme;
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar style={isDarkTheme ? 'light' : 'dark'} />
+      
+      {/* Game Info */}
+      <View style={styles.infoContainer}>
+        <Text style={[styles.message, { color: theme.text }]}>
+          {gameMessage}
+        </Text>
+        <Text style={[styles.debugText, { color: theme.secondaryText }]}>
+          Tilt: X: {accelerometerData.x.toFixed(2)}, Y: {accelerometerData.y.toFixed(2)}
+        </Text>
+        <Text style={[styles.debugText, { color: theme.secondaryText }]}>
+          Theme: {isDarkTheme ? 'Dark' : 'Light'}
+        </Text>
+      </View>
+
+      {/* Game Area */}
+      <View style={styles.gameArea}>
+        
+        {/* Moving Box */}
+        <Animated.View
+          style={[
+            styles.box,
+            {
+              backgroundColor: theme.boxColor,
+              transform: [
+                { translateX: boxPosition.x },
+                { translateY: boxPosition.y },
+              ],
+            },
+          ]}
+        />
+
+        {/* Goal */}
+        <View
+          style={[
+            styles.goal,
+            {
+              backgroundColor: theme.goalColor,
+              left: GOAL_X,
+              top: GOAL_Y,
+            },
+          ]}
+        />
+
+        {/* Barriers */}
+        {BARRIERS.map((barrier, index) => (
+          <View
+            key={index}
+            style={[
+              styles.barrier,
+              {
+                backgroundColor: theme.barrierColor,
+                left: barrier.x,
+                top: barrier.y,
+              },
+            ]}
+          />
+        ))}
+      </View>
+
+      {/* Instructions */}
+      <View style={styles.instructionsContainer}>
+        <Text style={[styles.instructions, { color: theme.secondaryText }]}>
+ გადაადგილებისთვის მოწყობილობის დახრა • 🟢 მიზნის მიღწევა • ⚫ ბარიერების თავიდან აცილება
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const lightTheme = {
+  background: '#f5f5f5',
+  text: '#333333',
+  secondaryText: '#666666',
+  boxColor: '#ff4444',
+  goalColor: '#44ff44',
+  barrierColor: '#333333',
+};
+
+const darkTheme = {
+  background: '#1a1a1a',
+  text: '#ffffff',
+  secondaryText: '#cccccc',
+  boxColor: '#ff6666',
+  goalColor: '#66ff66',
+  barrierColor: '#555555',
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingTop: 50,
+  },
+  infoContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  message: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  debugText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginVertical: 2,
+  },
+  gameArea: {
+    flex: 1,
+    position: 'relative',
+  },
+  box: {
+    position: 'absolute',
+    width: BOX_SIZE,
+    height: BOX_SIZE,
+    borderRadius: BOX_SIZE / 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  goal: {
+    position: 'absolute',
+    width: GOAL_SIZE,
+    height: GOAL_SIZE,
+    borderRadius: GOAL_SIZE / 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  barrier: {
+    position: 'absolute',
+    width: BARRIER_WIDTH,
+    height: BARRIER_HEIGHT,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  instructionsContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  instructions: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+});
