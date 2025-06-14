@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "დავალება 7",
+    "slug": "თამაში",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMotionUsageDescription": "ეს აპლიკაცია იყენებს აქსელერომეტრს თამაშის კონტროლისთვის მოწყობილობის დახრის საფუძველზე.",
+        "NSCameraUsageDescription": "ეს აპლიკაცია იყენებს კამერას ირგვლივ განათების დადგენისთვის დინამიური თემისთვის."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA",
+        "com.android.vending.BILLING"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "მიეცით $(PRODUCT_NAME)-ს წვდომა მოძრაობისა და ორიენტაციის მონაცემებზე თამაშის კონტროლისთვის."
+        }
+      ]
+    ]
+  }
+}
